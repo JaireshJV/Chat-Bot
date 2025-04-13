@@ -9,6 +9,16 @@ const { Schema } = mongoose;
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Check for required environment variables
+const requiredEnvVars = ['GEMINI_API_KEY', 'MONGO_URI'];
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+  console.error('Missing required environment variables:', missingEnvVars.join(', '));
+  console.error('Please set these variables in your Vercel project settings');
+  process.exit(1);
+}
+
 // Rate limiting configuration
 const RATE_LIMIT_DELAY = 5000; // 5 seconds between requests
 const MAX_RETRIES = 3;
@@ -84,11 +94,12 @@ const Ai = mongoose.model('Ai', AiSchema);
 
 // Function to interact with Gemini API
 const generateTextFromGemini = async (userPrompt, retryCount = 0) => {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not set in environment variables");
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not set in environment variables. Please check your Vercel project settings.");
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${apiKey}`;
   
   const requestBody = {
     contents: [{
@@ -241,6 +252,16 @@ app.post('/generate-text1', async (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
+  
+  // Handle missing environment variables
+  if (err.message.includes('GEMINI_API_KEY is not set')) {
+    return res.status(500).json({
+      error: "Configuration Error",
+      details: "GEMINI_API_KEY is not set. Please check your Vercel project settings.",
+      solution: "Add GEMINI_API_KEY to your Vercel environment variables"
+    });
+  }
+
   res.status(500).json({
     error: "Internal Server Error",
     details: err.message
