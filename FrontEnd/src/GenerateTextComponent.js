@@ -25,6 +25,12 @@ const GenerateTextComponent = () => {
   useEffect(() => {
     // Speech recognition initialization
     if ('webkitSpeechRecognition' in window) {
+      // Check if we're in a secure context (HTTPS)
+      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        setError('Speech recognition requires a secure connection (HTTPS) when not running on localhost.');
+        return;
+      }
+
       recognitionRef.current = new window.webkitSpeechRecognition();
       recognitionRef.current.continuous = false;
       recognitionRef.current.interimResults = false;
@@ -39,14 +45,14 @@ const GenerateTextComponent = () => {
       recognitionRef.current.onerror = (event) => {
         console.error('Speech recognition error:', event.error);
         setIsListening(false);
-        setError('Speech recognition error. Please try again.');
+        setError(`Speech recognition error: ${event.error}. Please try again or use text input.`);
       };
 
       recognitionRef.current.onend = () => {
         setIsListening(false);
       };
     } else {
-      setError('Speech recognition is not supported in your browser.');
+      setError('Speech recognition is not supported in your browser. Please use text input instead.');
     }
 
     // Speech synthesis initialization
