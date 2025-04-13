@@ -55,11 +55,14 @@ app.use(bodyParser.json());
 //   credentials: true
 // }));
 
-const corsOptions = {
-  origin: process.env.REACT_APP_BASE_URL,
-  methods: 'GET, POST,PUT,HEAD,PATCH,DELETE,OPTIONS',
-};
-app.use(cors(corsOptions));
+const allowedOrigin = 'https://chat-bot-client-eight.vercel.app';
+
+app.use(cors({
+  origin: allowedOrigin,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type']
+}));
+
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI,{
