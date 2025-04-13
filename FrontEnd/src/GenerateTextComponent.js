@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { MdCopyAll } from "react-icons/md";
 import { MdVolumeUp, MdVolumeOff } from "react-icons/md";
 import axios from 'axios';
+import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 
 // Configure axios defaults
 const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
@@ -15,7 +16,6 @@ const GenerateTextComponent = () => {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [retryAfter, setRetryAfter] = useState(null);
-  const [isListening, setIsListening] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [speakingIndex, setSpeakingIndex] = useState(null);
   const [femaleVoice, setFemaleVoice] = useState(null);
@@ -23,6 +23,19 @@ const GenerateTextComponent = () => {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const speechSynthesisRef = useRef(null);
+
+  const {
+    transcript,
+    listening,
+    resetTranscript,
+    browserSupportsSpeechRecognition
+  } = useSpeechRecognition();
+
+  useEffect(() => {
+    if (transcript) {
+      setPrompt(transcript);
+    }
+  }, [transcript]);
 
   useEffect(() => {
     // Initialize speech synthesis
@@ -71,19 +84,16 @@ const GenerateTextComponent = () => {
       };
 
       mediaRecorder.start();
-      setIsListening(true);
       setError(null);
     } catch (err) {
       console.error('Error starting recording:', err);
       setError('Failed to access microphone. Please check your microphone permissions.');
-      setIsListening(false);
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isListening) {
+    if (mediaRecorderRef.current && listening) {
       mediaRecorderRef.current.stop();
-      setIsListening(false);
     }
   };
 
@@ -96,7 +106,7 @@ const GenerateTextComponent = () => {
         const base64Audio = reader.result.split(',')[1];
         
         const response = await axios.post(
-          `${SPEECH_API_URL}?key=${SPEECH_API_KEY}`,
+          SPEECH_API_URL,
           {
             audio: {
               content: base64Audio
@@ -106,6 +116,12 @@ const GenerateTextComponent = () => {
               sampleRateHertz: 48000,
               languageCode: 'en-US',
               enableAutomaticPunctuation: true
+            }
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${SPEECH_API_KEY}`
             }
           }
         );
@@ -119,15 +135,22 @@ const GenerateTextComponent = () => {
       };
     } catch (err) {
       console.error('Error transcribing audio:', err);
-      setError('Failed to transcribe audio. Please try again.');
+      if (err.response?.status === 401) {
+        setError('Invalid API key. Please check your Speech-to-Text API key configuration.');
+      } else if (err.response?.status === 403) {
+        setError('API key does not have permission to access Speech-to-Text API.');
+      } else {
+        setError('Failed to transcribe audio. Please try again.');
+      }
     }
   };
 
   const toggleListening = () => {
-    if (isListening) {
-      stopRecording();
+    if (listening) {
+      SpeechRecognition.stopListening();
     } else {
-      startRecording();
+      resetTranscript();
+      SpeechRecognition.startListening({ continuous: true });
     }
   };
 
@@ -359,16 +382,22 @@ const GenerateTextComponent = () => {
             disabled={isLoading}
             className="prompt-input"
           />
-          <button 
-            type="button"
-            onClick={toggleListening}
-            className={`voice-button ${isListening ? 'listening' : ''}`}
-            disabled={isLoading}
-          >
-            <svg viewBox="0 0 24 24" width="24" height="24">
-              <path fill="currentColor" d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
-            </svg>
-          </button>
+          {browserSupportsSpeechRecognition ? (
+            <button 
+              type="button"
+              onClick={toggleListening}
+              className={`voice-button ${listening ? 'listening' : ''}`}
+              disabled={isLoading}
+            >
+              <svg viewBox="0 0 24 24" width="24" height="24">
+                <path fill="currentColor" d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
+              </svg>
+            </button>
+          ) : (
+            <span className="voice-not-supported">
+              Voice input not supported
+            </span>
+          )}
           <button 
             type="submit" 
             disabled={isLoading || !prompt.trim()}
@@ -610,6 +639,16 @@ const GenerateTextComponent = () => {
           border: 1px solid #dc3545;
           border-radius: 4px;
           background-color: #f8d7da;
+        }
+
+        .voice-not-supported {
+          padding: 12px;
+          background-color: #f0f0f0;
+          border: none;
+          border-radius: 20px;
+          cursor: not-allowed;
+          color: #666;
+          font-size: 16px;
         }
       `}</style>
     </div>
