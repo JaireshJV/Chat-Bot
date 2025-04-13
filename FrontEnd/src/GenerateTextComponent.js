@@ -107,7 +107,7 @@ const GenerateTextComponent = () => {
     setPrompt('');
 
     try {
-      const res = await axios.post(`${process.env.BASE_URL}/generate-text1`, { prompt });
+      const res = await axios.post(`${process.env.REACT_APP_BASE_URL}/generate-text1`, { prompt });
       
       // Add AI response to chat
       const aiMessage = { 
