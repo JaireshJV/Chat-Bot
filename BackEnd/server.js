@@ -50,7 +50,7 @@ const processQueue = async () => {
 app.use(cors());
 app.use(bodyParser.json());
 app.use(cors({
-  origin: 'http://localhost:3000', // or '*' to allow all origins (not recommended for production)
+  origin: `${process.env.REACT_APP_BASE_URL}`, // or '*' to allow all origins (not recommended for production)
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true
 }));
