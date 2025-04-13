@@ -3,6 +3,10 @@ import { MdCopyAll } from "react-icons/md";
 import { MdVolumeUp, MdVolumeOff } from "react-icons/md";
 import axios from 'axios';
 
+// Configure axios defaults
+axios.defaults.withCredentials = true;
+axios.defaults.headers.common['Content-Type'] = 'application/json';
+
 const GenerateTextComponent = () => {
   const [prompt, setPrompt] = useState('');
   const [messages, setMessages] = useState([]);
@@ -107,7 +111,15 @@ const GenerateTextComponent = () => {
     setPrompt('');
 
     try {
-      const res = await axios.post(`${process.env.REACT_APP_BASE_URL}/generate-text1`, { prompt });
+      const res = await axios.post(`${process.env.REACT_APP_BASE_URL}/generate-text1`, 
+        { prompt },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          withCredentials: true
+        }
+      );
       
       // Add AI response to chat
       const aiMessage = { 

@@ -46,34 +46,22 @@ const processQueue = async () => {
   }
 };
 
-// Middleware
-// app.use(cors());
-app.use(bodyParser.json());
-// app.use(cors({
-//   origin: `${process.env.REACT_APP_BASE_URL}`,
-//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-//   credentials: true
-// }));
-
-// const allowedOrigin = 'https://chat-bot-client-eight.vercel.app';
-
-// app.use(cors({
-//   origin: allowedOrigin,
-//   methods: ['OPTIONS','GET', 'POST', 'PATCH'],
-//   allowedHeaders: ['Content-Type']
-// }));
-
-
-const corsOption = {
-origin : process.env.REACT_APP_BASE_URL,
-methods : 'GET,HEAD,PUT,PATCH,POST,DELETE'
+// CORS configuration
+const corsOptions = {
+  origin: ['https://chat-bot-client-eight.vercel.app', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 200
 };
 
-app.use(cors(corsOption));
+// Middleware
+app.use(cors(corsOptions));
 app.use(bodyParser.json());
+app.use(express.json());
 
 // MongoDB connection
-mongoose.connect(process.env.MONGO_URI,{
+mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
   connectTimeoutMS: 60000,
@@ -138,7 +126,10 @@ const generateTextFromGemini = async (userPrompt, retryCount = 0) => {
   try {
     console.log(`Attempt ${retryCount + 1} - Sending request to Gemini...`);
     const response = await axios.post(url, requestBody, { 
-      timeout: 30000
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
 
     if (!response.data.candidates || !response.data.candidates[0] || !response.data.candidates[0].content) {
@@ -261,7 +252,18 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
+// Vercel serverless function handler
 module.exports = (req, res) => {
-  res.end("Hello from Vercel!");
+  res.setHeader('Access-Control-Allow-Origin', 'https://chat-bot-client-eight.vercel.app');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  app(req, res);
 };
 
