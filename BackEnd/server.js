@@ -55,14 +55,22 @@ app.use(bodyParser.json());
 //   credentials: true
 // }));
 
-const allowedOrigin = 'https://chat-bot-client-eight.vercel.app';
+// const allowedOrigin = 'https://chat-bot-client-eight.vercel.app';
 
-app.use(cors({
-  origin: allowedOrigin,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
-}));
+// app.use(cors({
+//   origin: allowedOrigin,
+//   methods: ['OPTIONS','GET', 'POST', 'PATCH'],
+//   allowedHeaders: ['Content-Type']
+// }));
 
+
+const corsOption = {
+origin : process.env.REACT_APP_BASE_URL,
+methods : 'GET,HEAD,PUT,PATCH,POST,DELETE'
+};
+
+app.use(cors(corsOption));
+app.use(bodyParser.json());
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI,{
