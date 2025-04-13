@@ -23,37 +23,57 @@ const GenerateTextComponent = () => {
 
   // Initialize speech recognition and synthesis
   useEffect(() => {
-    // Speech recognition initialization
-    if ('webkitSpeechRecognition' in window) {
-      // Check if we're in a secure context (HTTPS)
-      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-        setError('Speech recognition requires a secure connection (HTTPS) when not running on localhost.');
-        return;
+    // Speech recognition initialization with fallback
+    const initializeSpeechRecognition = () => {
+      try {
+        // Try to get the SpeechRecognition API
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        
+        if (SpeechRecognition) {
+          recognitionRef.current = new SpeechRecognition();
+          recognitionRef.current.continuous = false;
+          recognitionRef.current.interimResults = false;
+          recognitionRef.current.lang = 'en-US';
+
+          recognitionRef.current.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            setPrompt(prev => prev + (prev ? ' ' : '') + transcript);
+            setIsListening(false);
+          };
+
+          recognitionRef.current.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            setIsListening(false);
+            
+            // Handle specific error cases
+            switch (event.error) {
+              case 'not-allowed':
+                setError('Microphone access was denied. Please allow microphone access in your browser settings.');
+                break;
+              case 'no-speech':
+                setError('No speech detected. Please try speaking again.');
+                break;
+              case 'audio-capture':
+                setError('No microphone detected. Please check your microphone connection.');
+                break;
+              default:
+                setError('Speech recognition is not available. Please use text input instead.');
+            }
+          };
+
+          recognitionRef.current.onend = () => {
+            setIsListening(false);
+          };
+        } else {
+          setError('Speech recognition is not supported in your browser. Please use text input instead.');
+        }
+      } catch (error) {
+        console.error('Error initializing speech recognition:', error);
+        setError('Speech recognition initialization failed. Please use text input instead.');
       }
+    };
 
-      recognitionRef.current = new window.webkitSpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = 'en-US';
-
-      recognitionRef.current.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setPrompt(prev => prev + (prev ? ' ' : '') + transcript);
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-        setError(`Speech recognition error: ${event.error}. Please try again or use text input.`);
-      };
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false);
-      };
-    } else {
-      setError('Speech recognition is not supported in your browser. Please use text input instead.');
-    }
+    initializeSpeechRecognition();
 
     // Speech synthesis initialization
     speechSynthesisRef.current = window.speechSynthesis;
@@ -76,6 +96,7 @@ const GenerateTextComponent = () => {
       speechSynthesisRef.current.onvoiceschanged = loadVoices;
     }
 
+    // Cleanup function
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
@@ -95,11 +116,23 @@ const GenerateTextComponent = () => {
   }, [messages]);
 
   const toggleListening = () => {
+    if (!recognitionRef.current) {
+      setError('Speech recognition is not available. Please use text input instead.');
+      return;
+    }
+
     if (isListening) {
       recognitionRef.current.stop();
     } else {
-      recognitionRef.current.start();
-      setIsListening(true);
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+        setError(null); // Clear any previous errors
+      } catch (error) {
+        console.error('Error starting speech recognition:', error);
+        setError('Failed to start speech recognition. Please try again or use text input.');
+        setIsListening(false);
+      }
     }
   };
 
