@@ -47,13 +47,19 @@ const processQueue = async () => {
 };
 
 // Middleware
-app.use(cors());
+// app.use(cors());
 app.use(bodyParser.json());
-app.use(cors({
-  origin: `${process.env.REACT_APP_BASE_URL}`, // or '*' to allow all origins (not recommended for production)
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  credentials: true
-}));
+// app.use(cors({
+//   origin: `${process.env.REACT_APP_BASE_URL}`,
+//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+//   credentials: true
+// }));
+
+const corsOptions = {
+  origin: process.env.REACT_APP_BASE_URL,
+  methods: 'GET, POST,PUT,HEAD,PATCH,DELETE,OPTIONS',
+};
+app.use(cors(corsOptions));
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI,{
