@@ -4,8 +4,10 @@ import { MdVolumeUp, MdVolumeOff } from "react-icons/md";
 import axios from 'axios';
 
 // Configure axios defaults
-const API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
-const API_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent';
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
+const SPEECH_API_KEY = process.env.REACT_APP_SPEECH_API_KEY;
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent';
+const SPEECH_API_URL = 'https://speech.googleapis.com/v1/speech:recognize';
 
 const GenerateTextComponent = () => {
   const [prompt, setPrompt] = useState('');
@@ -18,64 +20,12 @@ const GenerateTextComponent = () => {
   const [speakingIndex, setSpeakingIndex] = useState(null);
   const [femaleVoice, setFemaleVoice] = useState(null);
   const messagesEndRef = useRef(null);
-  const recognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   const speechSynthesisRef = useRef(null);
 
-  // Initialize speech recognition and synthesis
   useEffect(() => {
-    // Speech recognition initialization with fallback
-    const initializeSpeechRecognition = () => {
-      try {
-        // Try to get the SpeechRecognition API
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        
-        if (SpeechRecognition) {
-          recognitionRef.current = new SpeechRecognition();
-          recognitionRef.current.continuous = false;
-          recognitionRef.current.interimResults = false;
-          recognitionRef.current.lang = 'en-US';
-
-          recognitionRef.current.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            setPrompt(prev => prev + (prev ? ' ' : '') + transcript);
-            setIsListening(false);
-          };
-
-          recognitionRef.current.onerror = (event) => {
-            console.error('Speech recognition error:', event.error);
-            setIsListening(false);
-            
-            // Handle specific error cases
-            switch (event.error) {
-              case 'not-allowed':
-                setError('Microphone access was denied. Please allow microphone access in your browser settings.');
-                break;
-              case 'no-speech':
-                setError('No speech detected. Please try speaking again.');
-                break;
-              case 'audio-capture':
-                setError('No microphone detected. Please check your microphone connection.');
-                break;
-              default:
-                setError('Speech recognition is not available. Please use text input instead.');
-            }
-          };
-
-          recognitionRef.current.onend = () => {
-            setIsListening(false);
-          };
-        } else {
-          setError('Speech recognition is not supported in your browser. Please use text input instead.');
-        }
-      } catch (error) {
-        console.error('Error initializing speech recognition:', error);
-        setError('Speech recognition initialization failed. Please use text input instead.');
-      }
-    };
-
-    initializeSpeechRecognition();
-
-    // Speech synthesis initialization
+    // Initialize speech synthesis
     speechSynthesisRef.current = window.speechSynthesis;
     
     // Load available voices and select a female voice
@@ -96,16 +46,90 @@ const GenerateTextComponent = () => {
       speechSynthesisRef.current.onvoiceschanged = loadVoices;
     }
 
-    // Cleanup function
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
       if (speechSynthesisRef.current) {
         speechSynthesisRef.current.cancel();
       }
     };
   }, []);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        await transcribeAudio(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsListening(true);
+      setError(null);
+    } catch (err) {
+      console.error('Error starting recording:', err);
+      setError('Failed to access microphone. Please check your microphone permissions.');
+      setIsListening(false);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isListening) {
+      mediaRecorderRef.current.stop();
+      setIsListening(false);
+    }
+  };
+
+  const transcribeAudio = async (audioBlob) => {
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(audioBlob);
+      
+      reader.onloadend = async () => {
+        const base64Audio = reader.result.split(',')[1];
+        
+        const response = await axios.post(
+          `${SPEECH_API_URL}?key=${SPEECH_API_KEY}`,
+          {
+            audio: {
+              content: base64Audio
+            },
+            config: {
+              encoding: 'WEBM_OPUS',
+              sampleRateHertz: 48000,
+              languageCode: 'en-US',
+              enableAutomaticPunctuation: true
+            }
+          }
+        );
+
+        if (response.data.results && response.data.results[0]) {
+          const transcript = response.data.results[0].alternatives[0].transcript;
+          setPrompt(prev => prev + (prev ? ' ' : '') + transcript);
+        } else {
+          setError('No speech detected. Please try speaking again.');
+        }
+      };
+    } catch (err) {
+      console.error('Error transcribing audio:', err);
+      setError('Failed to transcribe audio. Please try again.');
+    }
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -114,27 +138,6 @@ const GenerateTextComponent = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  const toggleListening = () => {
-    if (!recognitionRef.current) {
-      setError('Speech recognition is not available. Please use text input instead.');
-      return;
-    }
-
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
-      try {
-        recognitionRef.current.start();
-        setIsListening(true);
-        setError(null); // Clear any previous errors
-      } catch (error) {
-        console.error('Error starting speech recognition:', error);
-        setError('Failed to start speech recognition. Please try again or use text input.');
-        setIsListening(false);
-      }
-    }
-  };
 
   const copyToClipboard = async (text, index) => {
     try {
@@ -212,7 +215,7 @@ const GenerateTextComponent = () => {
 
     try {
       const response = await axios.post(
-        `${API_URL}?key=${API_KEY}`,
+        `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,
         {
           contents: [{
             role: "user",
