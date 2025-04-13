@@ -49,6 +49,11 @@ const processQueue = async () => {
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
+app.use(cors({
+  origin: 'http://localhost:3000', // or '*' to allow all origins (not recommended for production)
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true
+}));
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI,{
