@@ -9,16 +9,6 @@ const { Schema } = mongoose;
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Check for required environment variables
-const requiredEnvVars = ['GEMINI_API_KEY', 'MONGO_URI'];
-const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
-
-if (missingEnvVars.length > 0) {
-  console.error('Missing required environment variables:', missingEnvVars.join(', '));
-  console.error('Please set these variables in your Vercel project settings');
-  process.exit(1);
-}
-
 // Rate limiting configuration
 const RATE_LIMIT_DELAY = 5000; // 5 seconds between requests
 const MAX_RETRIES = 3;
@@ -56,22 +46,17 @@ const processQueue = async () => {
   }
 };
 
-// CORS configuration
-const corsOptions = {
+// Middleware
+app.use(cors({
   origin: ['https://chat-bot-client-eight.vercel.app', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-
-// Middleware
-app.use(cors(corsOptions));
+  credentials: true
+}));
 app.use(bodyParser.json());
-app.use(express.json());
 
 // MongoDB connection
-mongoose.connect(process.env.MONGO_URI, {
+mongoose.connect(process.env.MONGO_URI,{
   useNewUrlParser: true,
   useUnifiedTopology: true,
   connectTimeoutMS: 60000,
@@ -94,12 +79,11 @@ const Ai = mongoose.model('Ai', AiSchema);
 
 // Function to interact with Gemini API
 const generateTextFromGemini = async (userPrompt, retryCount = 0) => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not set in environment variables. Please check your Vercel project settings.");
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not set in environment variables");
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`;
   
   const requestBody = {
     contents: [{
@@ -137,10 +121,7 @@ const generateTextFromGemini = async (userPrompt, retryCount = 0) => {
   try {
     console.log(`Attempt ${retryCount + 1} - Sending request to Gemini...`);
     const response = await axios.post(url, requestBody, { 
-      timeout: 30000,
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      timeout: 30000
     });
 
     if (!response.data.candidates || !response.data.candidates[0] || !response.data.candidates[0].content) {
@@ -252,16 +233,6 @@ app.post('/generate-text1', async (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
-  
-  // Handle missing environment variables
-  if (err.message.includes('GEMINI_API_KEY is not set')) {
-    return res.status(500).json({
-      error: "Configuration Error",
-      details: "GEMINI_API_KEY is not set. Please check your Vercel project settings.",
-      solution: "Add GEMINI_API_KEY to your Vercel environment variables"
-    });
-  }
-
   res.status(500).json({
     error: "Internal Server Error",
     details: err.message
@@ -273,18 +244,7 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Vercel serverless function handler
 module.exports = (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', 'https://chat-bot-client-eight.vercel.app');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
-  app(req, res);
+  res.end("Hello from Vercel!");
 };
 
