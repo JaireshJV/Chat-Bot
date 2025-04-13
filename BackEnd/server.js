@@ -46,14 +46,22 @@ const processQueue = async () => {
   }
 };
 
-// Middleware
-app.use(cors({
+// CORS configuration
+const corsOptions = {
   origin: ['https://chat-bot-client-eight.vercel.app', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-}));
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+// Middleware
+app.use(cors(corsOptions));
 app.use(bodyParser.json());
+app.use(express.json());
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI,{
@@ -244,7 +252,22 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-module.exports = (req, res) => {
-  res.end("Hello from Vercel!");
+// Vercel serverless function handler
+module.exports = async (req, res) => {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', 'https://chat-bot-client-eight.vercel.app');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  // Forward the request to Express
+  return app(req, res);
 };
 
