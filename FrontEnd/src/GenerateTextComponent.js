@@ -4,8 +4,8 @@ import { MdVolumeUp, MdVolumeOff } from "react-icons/md";
 import axios from 'axios';
 
 // Configure axios defaults
-axios.defaults.withCredentials = true;
-axios.defaults.headers.common['Content-Type'] = 'application/json';
+const API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
+const API_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent';
 
 const GenerateTextComponent = () => {
   const [prompt, setPrompt] = useState('');
@@ -21,8 +21,9 @@ const GenerateTextComponent = () => {
   const recognitionRef = useRef(null);
   const speechSynthesisRef = useRef(null);
 
+  // Initialize speech recognition and synthesis
   useEffect(() => {
-    // Initialize speech recognition
+    // Speech recognition initialization
     if ('webkitSpeechRecognition' in window) {
       recognitionRef.current = new window.webkitSpeechRecognition();
       recognitionRef.current.continuous = false;
@@ -48,7 +49,7 @@ const GenerateTextComponent = () => {
       setError('Speech recognition is not supported in your browser.');
     }
 
-    // Initialize speech synthesis
+    // Speech synthesis initialization
     speechSynthesisRef.current = window.speechSynthesis;
     
     // Load available voices and select a female voice
@@ -63,7 +64,6 @@ const GenerateTextComponent = () => {
       setFemaleVoice(femaleVoice || voices[0]);
     };
 
-    // Load voices when they become available
     if (speechSynthesisRef.current.getVoices().length) {
       loadVoices();
     } else {
@@ -97,60 +97,6 @@ const GenerateTextComponent = () => {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!prompt.trim()) return;
-
-    setError(null);
-    setIsLoading(true);
-    setRetryAfter(null);
-
-    // Add user message to chat
-    const userMessage = { role: 'user', content: prompt };
-    setMessages(prev => [...prev, userMessage]);
-    setPrompt('');
-
-    try {
-      const res = await axios.post(`${process.env.REACT_APP_BASE_URL}/generate-text1`, 
-        { prompt },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          withCredentials: true
-        }
-      );
-      
-      // Add AI response to chat
-      const aiMessage = { 
-        role: 'assistant', 
-        content: res.data.gpt3Response,
-        time: res.data.time
-      };
-      setMessages(prev => [...prev, aiMessage]);
-    } catch (err) {
-      if (err.response?.status === 429) {
-        const retrySeconds = err.response.data.retryAfter || 5;
-        setRetryAfter(retrySeconds);
-        setError(`Rate limit exceeded. Please try again in ${retrySeconds} seconds.`);
-        
-        setTimeout(() => {
-          setError(null);
-          setRetryAfter(null);
-          handleSubmit(e);
-        }, retrySeconds * 1000);
-      } else {
-        const errorMessage = err.response?.data?.error || 
-                           err.response?.data?.details || 
-                           'Error generating response';
-        setError(errorMessage);
-      }
-      console.error('Error:', err.response?.data || err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const copyToClipboard = async (text, index) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -163,37 +109,30 @@ const GenerateTextComponent = () => {
 
   const speakText = (text, index) => {
     if (speakingIndex === index) {
-      // If already speaking, stop
       speechSynthesisRef.current.cancel();
       setSpeakingIndex(null);
       return;
     }
 
-    // Stop any ongoing speech
     speechSynthesisRef.current.cancel();
 
-    // Create new utterance
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
     
-    // Set the female voice if available
     if (femaleVoice) {
       utterance.voice = femaleVoice;
     }
 
-    // Set up event listeners
     utterance.onstart = () => setSpeakingIndex(index);
     utterance.onend = () => setSpeakingIndex(null);
     utterance.onerror = () => setSpeakingIndex(null);
 
-    // Speak the text
     speechSynthesisRef.current.speak(utterance);
   };
 
   const formatMessage = (content) => {
-    // Split content into parts: text and code blocks
     const parts = content.split(/(```[\s\S]*?```)/g);
     return parts.map((part, index) => {
       if (part.startsWith('```') && part.endsWith('```')) {
@@ -217,6 +156,94 @@ const GenerateTextComponent = () => {
       }
       return <p key={index}>{part}</p>;
     });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!prompt.trim()) return;
+
+    setError(null);
+    setIsLoading(true);
+    setRetryAfter(null);
+
+    // Add user message to chat
+    const userMessage = { role: 'user', content: prompt };
+    setMessages(prev => [...prev, userMessage]);
+    setPrompt('');
+
+    try {
+      const response = await axios.post(
+        `${API_URL}?key=${API_KEY}`,
+        {
+          contents: [{
+            role: "user",
+            parts: [{
+              text: prompt
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1000,
+            topP: 0.8,
+            topK: 40
+          },
+          safetySettings: [
+            {
+              category: "HARM_CATEGORY_HARASSMENT",
+              threshold: "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+              category: "HARM_CATEGORY_HATE_SPEECH",
+              threshold: "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              threshold: "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+              threshold: "BLOCK_MEDIUM_AND_ABOVE"
+            }
+          ]
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.data.candidates || !response.data.candidates[0] || !response.data.candidates[0].content) {
+        throw new Error("Invalid response format from Gemini API");
+      }
+
+      const aiMessage = { 
+        role: 'assistant', 
+        content: response.data.candidates[0].content.parts[0].text,
+        time: new Date()
+      };
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (err) {
+      if (err.response?.status === 429) {
+        const retrySeconds = 5;
+        setRetryAfter(retrySeconds);
+        setError(`Rate limit exceeded. Please try again in ${retrySeconds} seconds.`);
+        
+        setTimeout(() => {
+          setError(null);
+          setRetryAfter(null);
+          handleSubmit(e);
+        }, retrySeconds * 1000);
+      } else {
+        const errorMessage = err.response?.data?.error || 
+                           err.response?.data?.details || 
+                           'Error generating response';
+        setError(errorMessage);
+      }
+      console.error('Error:', err.response?.data || err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -362,10 +389,15 @@ const GenerateTextComponent = () => {
           text-align: right;
         }
 
-        .copy-button {
+        .message-actions {
           position: absolute;
           top: 5px;
           right: 5px;
+          display: flex;
+          gap: 5px;
+        }
+
+        .action-button {
           background-color: #f0f0f0;
           border: none;
           border-radius: 4px;
@@ -373,10 +405,23 @@ const GenerateTextComponent = () => {
           font-size: 0.8em;
           cursor: pointer;
           transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
-        .copy-button:hover {
+        .action-button:hover {
           background-color: #e0e0e0;
+        }
+
+        .action-button:disabled {
+          background-color: #ccc;
+          cursor: not-allowed;
+        }
+
+        .action-button svg {
+          width: 16px;
+          height: 16px;
         }
 
         .code-block {
@@ -523,41 +568,6 @@ const GenerateTextComponent = () => {
           border: 1px solid #dc3545;
           border-radius: 4px;
           background-color: #f8d7da;
-        }
-
-        .message-actions {
-          position: absolute;
-          top: 5px;
-          right: 5px;
-          display: flex;
-          gap: 5px;
-        }
-
-        .action-button {
-          background-color: #f0f0f0;
-          border: none;
-          border-radius: 4px;
-          padding: 4px 8px;
-          font-size: 0.8em;
-          cursor: pointer;
-          transition: all 0.2s;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .action-button:hover {
-          background-color: #e0e0e0;
-        }
-
-        .action-button:disabled {
-          background-color: #ccc;
-          cursor: not-allowed;
-        }
-
-        .action-button svg {
-          width: 16px;
-          height: 16px;
         }
       `}</style>
     </div>
