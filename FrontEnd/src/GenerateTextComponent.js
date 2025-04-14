@@ -2,13 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { MdCopyAll } from "react-icons/md";
 import { MdVolumeUp, MdVolumeOff } from "react-icons/md";
 import axios from 'axios';
-import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 
 // Configure axios defaults
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
-const SPEECH_API_KEY = process.env.REACT_APP_SPEECH_API_KEY;
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent';
-const SPEECH_API_URL = 'https://speech.googleapis.com/v1/speech:recognize';
+const API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
+const API_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent';
 
 const GenerateTextComponent = () => {
   const [prompt, setPrompt] = useState('');
@@ -16,29 +13,43 @@ const GenerateTextComponent = () => {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [retryAfter, setRetryAfter] = useState(null);
+  const [isListening, setIsListening] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [speakingIndex, setSpeakingIndex] = useState(null);
   const [femaleVoice, setFemaleVoice] = useState(null);
   const messagesEndRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  const recognitionRef = useRef(null);
   const speechSynthesisRef = useRef(null);
 
-  const {
-    transcript,
-    listening,
-    resetTranscript,
-    browserSupportsSpeechRecognition
-  } = useSpeechRecognition();
-
+  // Initialize speech recognition and synthesis
   useEffect(() => {
-    if (transcript) {
-      setPrompt(transcript);
+    // Speech recognition initialization
+    if ('webkitSpeechRecognition' in window) {
+      recognitionRef.current = new window.webkitSpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setPrompt(prev => prev + (prev ? ' ' : '') + transcript);
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+        setError('Speech recognition error. Please try again.');
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+    } else {
+      setError('Speech recognition is not supported in your browser.');
     }
-  }, [transcript]);
 
-  useEffect(() => {
-    // Initialize speech synthesis
+    // Speech synthesis initialization
     speechSynthesisRef.current = window.speechSynthesis;
     
     // Load available voices and select a female voice
@@ -60,99 +71,14 @@ const GenerateTextComponent = () => {
     }
 
     return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
       if (speechSynthesisRef.current) {
         speechSynthesisRef.current.cancel();
       }
     };
   }, []);
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        audioChunksRef.current.push(event.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-        await transcribeAudio(audioBlob);
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-      setError(null);
-    } catch (err) {
-      console.error('Error starting recording:', err);
-      setError('Failed to access microphone. Please check your microphone permissions.');
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && listening) {
-      mediaRecorderRef.current.stop();
-    }
-  };
-
-  const transcribeAudio = async (audioBlob) => {
-    try {
-      const reader = new FileReader();
-      reader.readAsDataURL(audioBlob);
-      
-      reader.onloadend = async () => {
-        const base64Audio = reader.result.split(',')[1];
-        
-        const response = await axios.post(
-          SPEECH_API_URL,
-          {
-            audio: {
-              content: base64Audio
-            },
-            config: {
-              encoding: 'WEBM_OPUS',
-              sampleRateHertz: 48000,
-              languageCode: 'en-US',
-              enableAutomaticPunctuation: true
-            }
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${SPEECH_API_KEY}`
-            }
-          }
-        );
-
-        if (response.data.results && response.data.results[0]) {
-          const transcript = response.data.results[0].alternatives[0].transcript;
-          setPrompt(prev => prev + (prev ? ' ' : '') + transcript);
-        } else {
-          setError('No speech detected. Please try speaking again.');
-        }
-      };
-    } catch (err) {
-      console.error('Error transcribing audio:', err);
-      if (err.response?.status === 401) {
-        setError('Invalid API key. Please check your Speech-to-Text API key configuration.');
-      } else if (err.response?.status === 403) {
-        setError('API key does not have permission to access Speech-to-Text API.');
-      } else {
-        setError('Failed to transcribe audio. Please try again.');
-      }
-    }
-  };
-
-  const toggleListening = () => {
-    if (listening) {
-      SpeechRecognition.stopListening();
-    } else {
-      resetTranscript();
-      SpeechRecognition.startListening({ continuous: true });
-    }
-  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -161,6 +87,15 @@ const GenerateTextComponent = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
 
   const copyToClipboard = async (text, index) => {
     try {
@@ -227,11 +162,6 @@ const GenerateTextComponent = () => {
     e.preventDefault();
     if (!prompt.trim()) return;
 
-    // Stop speech recognition if it's active
-    if (listening) {
-      SpeechRecognition.stopListening();
-    }
-
     setError(null);
     setIsLoading(true);
     setRetryAfter(null);
@@ -240,11 +170,10 @@ const GenerateTextComponent = () => {
     const userMessage = { role: 'user', content: prompt };
     setMessages(prev => [...prev, userMessage]);
     setPrompt('');
-    resetTranscript(); // Clear the transcript for next use
 
     try {
       const response = await axios.post(
-        `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,
+        `${API_URL}?key=${API_KEY}`,
         {
           contents: [{
             role: "user",
@@ -388,22 +317,16 @@ const GenerateTextComponent = () => {
             disabled={isLoading}
             className="prompt-input"
           />
-          {browserSupportsSpeechRecognition ? (
-            <button 
-              type="button"
-              onClick={toggleListening}
-              className={`voice-button ${listening ? 'listening' : ''}`}
-              disabled={isLoading}
-            >
-              <svg viewBox="0 0 24 24" width="24" height="24">
-                <path fill="currentColor" d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
-              </svg>
-            </button>
-          ) : (
-            <span className="voice-not-supported">
-              Voice input not supported
-            </span>
-          )}
+          <button 
+            type="button"
+            onClick={toggleListening}
+            className={`voice-button ${isListening ? 'listening' : ''}`}
+            disabled={isLoading}
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <path fill="currentColor" d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
+            </svg>
+          </button>
           <button 
             type="submit" 
             disabled={isLoading || !prompt.trim()}
@@ -645,16 +568,6 @@ const GenerateTextComponent = () => {
           border: 1px solid #dc3545;
           border-radius: 4px;
           background-color: #f8d7da;
-        }
-
-        .voice-not-supported {
-          padding: 12px;
-          background-color: #f0f0f0;
-          border: none;
-          border-radius: 20px;
-          cursor: not-allowed;
-          color: #666;
-          font-size: 16px;
         }
       `}</style>
     </div>
