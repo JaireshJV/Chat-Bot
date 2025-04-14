@@ -227,6 +227,11 @@ const GenerateTextComponent = () => {
     e.preventDefault();
     if (!prompt.trim()) return;
 
+    // Stop speech recognition if it's active
+    if (listening) {
+      SpeechRecognition.stopListening();
+    }
+
     setError(null);
     setIsLoading(true);
     setRetryAfter(null);
@@ -235,6 +240,7 @@ const GenerateTextComponent = () => {
     const userMessage = { role: 'user', content: prompt };
     setMessages(prev => [...prev, userMessage]);
     setPrompt('');
+    resetTranscript(); // Clear the transcript for next use
 
     try {
       const response = await axios.post(
